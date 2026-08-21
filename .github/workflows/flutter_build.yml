@@ -1,0 +1,89 @@
+name: Flutter APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: 'URL file ZIP project Flutter'
+        required: true
+        type: string
+      tag:
+        description: 'Tag build'
+        required: true
+        type: string
+      build_type:
+        description: 'Jenis build'
+        required: false
+        default: 'release'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build Flutter APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Download project ZIP
+        env:
+          ZIP_URL: ${{ inputs.zip_url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Downloading project..."
+          curl -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "$ZIP_URL" \
+            -o project.zip
+
+      - name: Extract project
+        run: |
+          mkdir project
+          unzip -q project.zip -d project
+
+          echo "Isi folder:"
+          find project -maxdepth 2 -type f | head -50
+
+      - name: Find Flutter project
+        run: |
+          PROJECT_DIR=$(find project -name pubspec.yaml -printf '%h\n' | head -1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: pubspec.yaml tidak ditemukan!"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Flutter project ditemukan di: $PROJECT_DIR"
+
+      - name: Get dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 3
